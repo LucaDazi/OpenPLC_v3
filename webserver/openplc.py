@@ -179,6 +179,28 @@ class runtime:
             except:
                 print("Error connecting to OpenPLC runtime")
                 
+    def start_nats(self, port_num):
+        if(self.status() == "Running"):
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.connect(('localhost', 43628))
+                s.send('start_nats('+str(port_num) + ')\n')
+                data = s.recv(1000)
+                s.close()
+            except:
+                print("Error connecting to OpenPLC runtime")
+
+    def stop_nats(self):
+        if (self.status() == "Running"):
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.connect(('localhost', 43628))
+                s.send('stop_nats()\n')
+                data = s.recv(1000)
+                s.close()
+            except:
+                print("Error connecting to OpenPLC runtime")
+
     def start_enip(self, port_num):
         if (self.status() == "Running"):
             try:

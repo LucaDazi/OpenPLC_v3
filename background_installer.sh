@@ -149,6 +149,20 @@ function install_all_libs {
     $1 ldconfig
     cd ../..
 
+    echo "[NATS]"
+    cd utils/nats_src
+    rm -rf build
+    mkdir build
+    cd build
+    cmake ..
+    $1 make install
+    if [ $? -ne 0 ]; then
+        echo "Error installing NATS client"
+        echo "OpenPLC was NOT installed"
+        exit 1
+    fi
+    cd ../../..
+
     if [ "$1" == "sudo" ]; then
         echo ""
         echo "[OPENPLC SERVICE]"

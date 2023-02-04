@@ -1,3 +1,6 @@
 [submodule "utils/ethercat_src"]
 	path = utils/ethercat_src
 	url = https://github.com/r2k-in-the-vortex/ethercat_src.git
+[submodule "utils/nats_src"]
+	path = utils/nats_src
+	url = https://github.com/nats-io/nats.c.git

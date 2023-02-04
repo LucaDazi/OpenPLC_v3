@@ -55,6 +55,13 @@ def configure_runtime():
                     else:
                         print("Disabling DNP3")
                         openplc_runtime.stop_dnp3()
+                elif (row[0] == "Nats_port"):
+                    if (row[1] != "disabled"):
+                        print("Enabling NATS on port " + str(int(row[1])))
+                        openplc_runtime.start_nats(int(row[1]))
+                    else:
+                        print("Disabling NATS")
+                        openplc_runtime.stop_nats()
                 elif (row[0] == "Enip_port"):
                     if (row[1] != "disabled"):
                         print("Enabling EtherNet/IP on port " + str(int(row[1])))
@@ -2094,6 +2101,8 @@ def settings():
                             modbus_port = str(row[1])
                         elif (row[0] == "Dnp3_port"):
                             dnp3_port = str(row[1])
+                        elif (row[0] == "Nats_port"):
+                            nats_port = str(row[1])
                         elif (row[0] == "Enip_port"):
                             enip_port = str(row[1])
                         elif (row[0] == "Pstorage_polling"):
@@ -2142,6 +2151,28 @@ def settings():
                         <label for='dnp3_server_port'><b>DNP3 Server Port</b></label>
                         <input type='text' id='dnp3_server_port' name='dnp3_server_port' value='""" + dnp3_port + "'>"
                     
+                    return_str += """
+                        <br>
+                        <br>
+                        <br>
+                        <label class="container">
+                            <b>Enable NATS Client</b>"""
+                    
+                    if (nats_port == 'disabled'):
+                        return_str += """
+                            <input id="nats_client" type="checkbox">
+                            <span class="checkmark"></span>
+                        </label>
+                        <label for='nats_client_port'><b>NATS Client Port</b></label>
+                        <input type='text' id='nats_client_port' name='nats_client_port' value='4222'>"""
+                    else:
+                        return_str += """
+                            <input id="nats_client" type="checkbox" checked>
+                            <span class="checkmark"></span>
+                        </label>
+                        <label for='nats_client_port'><b>NATS Client Port</b></label>
+                        <input type='text' id='nats_client_port' name='nats_client_port' value='""" + nats_port + "'>"
+
                     return_str += """
                         <br>
                         <br>
@@ -2231,13 +2262,14 @@ def settings():
         elif (flask.request.method == 'POST'):
             modbus_port = flask.request.form.get('modbus_server_port')
             dnp3_port = flask.request.form.get('dnp3_server_port')
+            nats_port = flask.request.form.get('nats_client_port')
             enip_port = flask.request.form.get('enip_server_port')
             pstorage_poll = flask.request.form.get('pstorage_thread_poll')
             start_run = flask.request.form.get('auto_run_text')
             slave_polling = flask.request.form.get('slave_polling_period')
             slave_timeout = flask.request.form.get('slave_timeout')
             
-            (modbus_port, dnp3_port, enip_port, pstorage_poll, start_run, slave_polling, slave_timeout) = sanitize_input(modbus_port, dnp3_port, enip_port, pstorage_poll, start_run, slave_polling, slave_timeout)
+            (modbus_port, dnp3_port, nats_port, enip_port, pstorage_poll, start_run, slave_polling, slave_timeout) = sanitize_input(modbus_port, dnp3_port, nats_port, enip_port, pstorage_poll, start_run, slave_polling, slave_timeout)
 
             database = "openplc.db"
             conn = create_connection(database)
@@ -2258,6 +2290,13 @@ def settings():
                         cur.execute("UPDATE Settings SET Value = ? WHERE Key = 'Dnp3_port'", (str(dnp3_port),))
                         conn.commit()
                         
+                    if (nats_port == None):
+                        cur.execute("UPDATE Settings SET Value = 'disabled' WHERE Key = 'Nats_port'")
+                        conn.commit()
+                    else:
+                        cur.execute("UPDATE Settings SET Value = ? WHERE Key = 'Nats_port'", (str(nats_port),))
+                        conn.commit()
+
                     if (enip_port == None):
                         cur.execute("UPDATE Settings SET Value = 'disabled' WHERE Key = 'Enip_port'")
                         conn.commit()

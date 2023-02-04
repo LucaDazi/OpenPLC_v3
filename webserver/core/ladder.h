@@ -25,6 +25,7 @@
 
 #include <pthread.h>
 #include <stdint.h>
+#include "frozen.h"
 
 #define MODBUS_PROTOCOL     0
 #define DNP3_PROTOCOL       1
@@ -130,6 +131,7 @@ bool SetSocketBlockingEnabled(int fd, bool blocking);
 void startInteractiveServer(int port);
 extern bool run_modbus;
 extern bool run_dnp3;
+extern bool run_nats;
 extern bool run_enip;
 extern bool run_pstorage;
 extern uint16_t pstorage_polling;
@@ -154,6 +156,9 @@ void updateBuffersOut_MB();
 
 //dnp3.cpp
 void dnp3StartServer(int port);
+
+//nats.cpp
+void natsStartClient(int port);
 
 //persistent_storage.cpp
 void startPstorage();

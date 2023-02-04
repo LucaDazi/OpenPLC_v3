@@ -1173,6 +1173,8 @@ settings_tail = """
             var modbus_text = document.getElementById('modbus_server_port');
             var dnp3_checkbox = document.getElementById('dnp3_server');
             var dnp3_text = document.getElementById('dnp3_server_port');
+            var nats_checkbox = document.getElementById('nats_client');
+            var nats_text = document.getElementById('nats_client_port');
             var enip_checkbox = document.getElementById('enip_server');
             var enip_text = document.getElementById('enip_server_port');
             var pstorage_checkbox = document.getElementById('pstorage_thread');
@@ -1198,6 +1200,15 @@ settings_tail = """
                 dnp3_text.disabled = true;
             }
             
+            if (nats_checkbox.checked == true)
+            {
+                nats_text.disabled = false;
+            }
+            else
+            {
+                nats_text.disabled = true;
+            }
+
             if (enip_checkbox.checked == true)
             {
                 enip_text.disabled = false;
@@ -1236,6 +1247,11 @@ settings_tail = """
             setupCheckboxes();
         }
         
+        document.getElementById('nats_client').onchange = function()
+        {
+            setupCheckboxes();
+        }
+
         document.getElementById('enip_server').onchange = function()
         {
             setupCheckboxes();
@@ -1257,6 +1273,8 @@ settings_tail = """
             var modbus_port = document.forms["uploadForm"]["modbus_server_port"].value;
             var dnp3_checkbox = document.forms["uploadForm"]["dnp3_server"].checked;
             var dnp3_port = document.forms["uploadForm"]["dnp3_server_port"].value;
+            var nats_checkbox = document.forms["uploadForm"]["nats_client"].checked;
+            var nats_port = document.forms["uploadForm"]["nats_client_port"].value;
             var enip_checkbox = document.forms["uploadForm"]["enip_server"].checked;
             var enip_port = document.forms["uploadForm"]["enip_server_port"].value;
             var pstorage_checkbox = document.forms["uploadForm"]["pstorage_thread"].checked;
@@ -1268,6 +1286,11 @@ settings_tail = """
                 return false;
             }
             if (dnp3_checkbox && (Number(dnp3_port) < 0 || Number(dnp3_port) > 65535))
+            {
+                alert("Please select a port number between 0 and 65535");
+                return false;
+            }
+            if (nats_checkbox && (Number(nats_port) < 0 || Number(nats_port) > 65535))
             {
                 alert("Please select a port number between 0 and 65535");
                 return false;

@@ -45,6 +45,8 @@ bool run_modbus = 0;
 uint16_t modbus_port = 502;
 bool run_dnp3 = 0;
 uint16_t dnp3_port = 20000;
+bool run_nats = 0;
+uint16_t nats_port = 4222;
 bool run_enip = 0;
 uint16_t enip_port = 44818;
 bool run_pstorage = 0;
@@ -58,6 +60,7 @@ time_t end_time;
 //Global Threads
 pthread_t modbus_thread;
 pthread_t dnp3_thread;
+pthread_t nats_thread;
 pthread_t enip_thread;
 pthread_t pstorage_thread;
 
@@ -81,6 +84,14 @@ void *modbusThread(void *arg)
 void *dnp3Thread(void *arg)
 {
     dnp3StartServer(dnp3_port);
+}
+
+//-----------------------------------------------------------------------------
+// Start the NATS Thread
+//-----------------------------------------------------------------------------
+void *natsThread(void *arg)
+{
+    natsStartClient(nats_port);
 }
 
 //-----------------------------------------------------------------------------
@@ -263,6 +274,13 @@ void processCommand(unsigned char *buffer, int client_fd)
             sprintf(log_msg, "DNP3 server was stopped\n");
             log(log_msg);
         }
+        if (run_nats)
+        {
+            run_nats = 0;
+            pthread_join(nats_thread, NULL);
+            sprintf(log_msg, "NATS client was stopped\n");
+            log(log_msg);
+        }
         run_openplc = 0;
         processing_command = false;
     }
@@ -345,6 +363,40 @@ void processCommand(unsigned char *buffer, int client_fd)
             run_dnp3 = 0;
             pthread_join(dnp3_thread, NULL);
             sprintf(log_msg, "DNP3 server was stopped\n");
+            log(log_msg);
+        }
+        processing_command = false;
+    }
+    else if (strncmp(buffer, "start_nats(", 11) == 0)
+    {
+        processing_command = true;
+        nats_port = readCommandArgument(buffer);
+        sprintf(log_msg, "Issued start_nats() command to start on port: %d\n", nats_port);
+        log(log_msg);
+        if(run_nats){
+            sprintf(log_msg, "NATS client already active. Restarting on port: %d", nats_port);
+            log(log_msg);
+            //Stop NATS client
+            run_nats = 0;
+            pthread_join(nats_thread, NULL);
+            sprintf(log_msg, "NATS client was stopped\n");
+            log(log_msg);
+        }
+        //Start NATS client
+        run_nats = 1;
+        pthread_create(&nats_thread, NULL, natsThread, NULL);
+        processing_command = false;
+    }
+    else if (strncmp(buffer, "stop_nats()", 11) == 0)
+    {
+        processing_command = true;
+        sprintf(log_msg, "Issued stop_nats() command\n");
+        log(log_msg);
+        if (run_nats)
+        {
+            run_nats = 0;
+            pthread_join(nats_thread, NULL);
+            sprintf(log_msg, "NATS client was stopped\n");
             log(log_msg);
         }
         processing_command = false;
@@ -540,6 +592,7 @@ void startInteractiveServer(int port)
     printf("Shutting down internal threads\n");
     run_modbus = 0;
     run_dnp3 = 0;
+    run_nats = 0;
     run_enip = 0;
     run_pstorage = 0;
     pthread_join(modbus_thread, NULL);
