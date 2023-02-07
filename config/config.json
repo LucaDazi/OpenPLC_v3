@@ -1,0 +1,44 @@
+{
+    "data":{
+       "C1.LBAYMMXU1.A.phsA":{
+          "address": "%IX0.4"
+       },
+       "C1.LBAYMMXU1.A.phsB":{
+          "address": "%IB1"
+       },
+       "C1.LBAYMMXU1.A.phsC":{
+          "address": "%IW2"
+       },
+       "C1.LBAYMMXU1.PPV.phsAB":{
+          "address": "%MD3"
+       },
+       "C1.LBAYMMXU1.PPV.phsBC":{
+          "address": "%ML4"
+       },
+       "C1.LBAYMMXU1.PPV.phsCA":{
+          "address": "%QX5.2"
+       },
+       "C1.LBAYMMXU1.PhV.phsA":{
+          "address": "%QB6"
+       },
+       "C1.LBAYMMXU1.PhV.phsB":{
+          "address": "%QW7"
+       },
+       "C1.LBAYMMXU1.PhV.phsC":{
+          "address": "%MD8"
+       },
+       "C1.LBAYMMXU1.TotVAr":{
+          "address": "%ML9"
+       },
+       "C1.LBAYMMXU1.TotW":{
+          "address": "%QX1002.7"
+       },
+       "C1.LBAYMMXU1.Float.Input.Example":{
+         "address": "%MD0"
+       },
+       "C1.LBAYMMXU1.Double.Output.Example":{
+         "address": "%ML0"
+       }
+
+    }
+ }

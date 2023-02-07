@@ -179,12 +179,12 @@ class runtime:
             except:
                 print("Error connecting to OpenPLC runtime")
                 
-    def start_nats(self, port_num):
+    def start_nats(self, server, sub_topic, pub_topic):
         if(self.status() == "Running"):
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.connect(('localhost', 43628))
-                s.send('start_nats('+str(port_num) + ')\n')
+                s.send('start_nats('+server + ','+sub_topic+','+pub_topic+')\n')
                 data = s.recv(1000)
                 s.close()
             except:

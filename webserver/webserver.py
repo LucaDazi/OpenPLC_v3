@@ -40,6 +40,11 @@ def configure_runtime():
             cur.close()
             conn.close()
 
+            nats_server = "nats://localhost:4222"
+            nats_sub_topic = "sub"
+            nats_pub_topic = "pub"
+            nats_enabled = 0
+
             for row in rows:
                 if (row[0] == "Modbus_port"):
                     if (row[1] != "disabled"):
@@ -55,13 +60,22 @@ def configure_runtime():
                     else:
                         print("Disabling DNP3")
                         openplc_runtime.stop_dnp3()
-                elif (row[0] == "Nats_port"):
+                # LUCA
+                elif (row[0] == "Nats_server"):
                     if (row[1] != "disabled"):
-                        print("Enabling NATS on port " + str(int(row[1])))
-                        openplc_runtime.start_nats(int(row[1]))
+                        print("Enabling NATS to connect to " + str(row[1]))
+                        nats_server = str(row[1])
+                        nats_enabled = 1
+                        #openplc_runtime.start_nats(int(row[1]))
                     else:
                         print("Disabling NATS")
-                        openplc_runtime.stop_nats()
+                        #openplc_runtime.stop_nats()
+                        nats_enabled = 0
+                elif (row[0] == "Nats_sub_topic"):
+                    nats_sub_topic = str(row[1])
+                elif (row[0] == "Nats_pub_topic"):
+                    nats_pub_topic = str(row[1])
+                #
                 elif (row[0] == "Enip_port"):
                     if (row[1] != "disabled"):
                         print("Enabling EtherNet/IP on port " + str(int(row[1])))
@@ -77,6 +91,13 @@ def configure_runtime():
                         print("Disabling Persistent Storage")
                         openplc_runtime.stop_pstorage()
                         delete_persistent_file()
+            
+            # LUCA
+            if (nats_enabled == 1):
+                openplc_runtime.start_nats(nats_server, nats_sub_topic, nats_pub_topic)
+            else:
+                openplc_runtime.stop_nats()
+            #
         except Error as e:
             print("error connecting to the database" + str(e))
     else:
@@ -2095,14 +2116,20 @@ def settings():
                     rows = cur.fetchall()
                     cur.close()
                     conn.close()
-                    
+
                     for row in rows:
                         if (row[0] == "Modbus_port"):
                             modbus_port = str(row[1])
                         elif (row[0] == "Dnp3_port"):
                             dnp3_port = str(row[1])
-                        elif (row[0] == "Nats_port"):
-                            nats_port = str(row[1])
+                        # LUCA                  
+                        elif (row[0] == "Nats_server"):
+                            nats_server = row[1]
+                        elif (row[0] == "Nats_sub_topic"):
+                            nats_sub_topic = row[1]
+                        elif (row[0] == "Nats_pub_topic"):
+                            nats_pub_topic = row[1]
+                        #
                         elif (row[0] == "Enip_port"):
                             enip_port = str(row[1])
                         elif (row[0] == "Pstorage_polling"):
@@ -2158,20 +2185,35 @@ def settings():
                         <label class="container">
                             <b>Enable NATS Client</b>"""
                     
-                    if (nats_port == 'disabled'):
+                    # LUCA
+                    if (nats_server == 'disabled'):
                         return_str += """
                             <input id="nats_client" type="checkbox">
                             <span class="checkmark"></span>
                         </label>
-                        <label for='nats_client_port'><b>NATS Client Port</b></label>
-                        <input type='text' id='nats_client_port' name='nats_client_port' value='4222'>"""
+                        <label for='nats_server'><b>NATS Server address and port</b></label>
+                        <input type='text' id='nats_server' name='nats_server' value=''><br><br>
+                        <label for='nats_sub_topic'><b>NATS Subscription Topic</b></label>
+                        <input type='text' id='nats_sub_topic' name='nats_sub_topic' value=''><br><br>
+                        <label for='nats_pub_topic'><b>NATS Publish Topic</b></label>
+                        <input type='text' id='nats_pub_topic' name='nats_pub_topic' value=''><br><br>
+                        """
                     else:
                         return_str += """
                             <input id="nats_client" type="checkbox" checked>
                             <span class="checkmark"></span>
                         </label>
-                        <label for='nats_client_port'><b>NATS Client Port</b></label>
-                        <input type='text' id='nats_client_port' name='nats_client_port' value='""" + nats_port + "'>"
+                        <label for='nats_server'><b>NATS Server address and port</b></label>
+                        <input type='text' id='nats_server' name='nats_server' value='""" + nats_server + "'><br><br>"
+
+                        return_str += """
+                        <label for='nats_sub_topic'><b>NATS Subscription Topic</b></label>
+                        <input type='text' id='nats_sub_topic' name='nats_sub_topic' value='""" + nats_sub_topic + "'><br><br>"                        
+
+                        return_str += """
+                        <label for='nats_pub_topic'><b>NATS Publish Topic</b></label>
+                        <input type='text' id='nats_pub_topic' name='nats_pub_topic' value='""" + nats_pub_topic + "'><br><br>"                        
+                    #
 
                     return_str += """
                         <br>
@@ -2262,14 +2304,16 @@ def settings():
         elif (flask.request.method == 'POST'):
             modbus_port = flask.request.form.get('modbus_server_port')
             dnp3_port = flask.request.form.get('dnp3_server_port')
-            nats_port = flask.request.form.get('nats_client_port')
+            nats_server = flask.request.form.get('nats_server')
+            nats_sub_topic = flask.request.form.get('nats_sub_topic')
+            nats_pub_topic = flask.request.form.get('nats_pub_topic')
             enip_port = flask.request.form.get('enip_server_port')
             pstorage_poll = flask.request.form.get('pstorage_thread_poll')
             start_run = flask.request.form.get('auto_run_text')
             slave_polling = flask.request.form.get('slave_polling_period')
             slave_timeout = flask.request.form.get('slave_timeout')
             
-            (modbus_port, dnp3_port, nats_port, enip_port, pstorage_poll, start_run, slave_polling, slave_timeout) = sanitize_input(modbus_port, dnp3_port, nats_port, enip_port, pstorage_poll, start_run, slave_polling, slave_timeout)
+            (modbus_port, dnp3_port, nats_server, nats_sub_topic, nats_pub_topic, enip_port, pstorage_poll, start_run, slave_polling, slave_timeout) = sanitize_input(modbus_port, dnp3_port, nats_server, nats_sub_topic, nats_pub_topic, enip_port, pstorage_poll, start_run, slave_polling, slave_timeout)
 
             database = "openplc.db"
             conn = create_connection(database)
@@ -2289,12 +2333,16 @@ def settings():
                     else:
                         cur.execute("UPDATE Settings SET Value = ? WHERE Key = 'Dnp3_port'", (str(dnp3_port),))
                         conn.commit()
-                        
-                    if (nats_port == None):
-                        cur.execute("UPDATE Settings SET Value = 'disabled' WHERE Key = 'Nats_port'")
+
+                    if ( nats_server == None):
+                        cur.execute("UPDATE Settings SET Value = 'disabled' WHERE Key = 'Nats_server'")
+                        cur.execute("UPDATE Settings SET Value = 'disabled' WHERE Key = 'Nats_sub_topic'")
+                        cur.execute("UPDATE Settings SET Value = 'disabled' WHERE Key = 'Nats_pub_topic'")
                         conn.commit()
                     else:
-                        cur.execute("UPDATE Settings SET Value = ? WHERE Key = 'Nats_port'", (str(nats_port),))
+                        cur.execute("UPDATE Settings SET Value = ? WHERE Key == 'Nats_server'", (str(nats_server),))
+                        cur.execute("UPDATE Settings SET Value = ? WHERE Key == 'Nats_sub_topic'", (str(nats_sub_topic),))
+                        cur.execute("UPDATE Settings SET Value = ? WHERE Key == 'Nats_pub_topic'", (str(nats_pub_topic),))
                         conn.commit()
 
                     if (enip_port == None):
@@ -2395,6 +2443,7 @@ def escape(s, quote=True):
     if quote:
         s = s.replace('"', "&quot;")
         s = s.replace('\'', "&#x27;")
+    s.strip()
     return s
 
 
@@ -2442,7 +2491,7 @@ if __name__ == '__main__':
                 configure_runtime()
                 monitor.parse_st(openplc_runtime.project_file)
             
-            app.run(debug=False, host='0.0.0.0', threaded=True, port=8080)
+            app.run(debug=True, host='0.0.0.0', threaded=True, port=8080)
         
         except Error as e:
             print("error connecting to the database" + str(e))

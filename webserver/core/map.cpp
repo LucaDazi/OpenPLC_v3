@@ -30,6 +30,11 @@ M* mapNew()
 	return map;
 }
 
+int mapSize(M* map)
+{
+	return map->size;
+}
+
 void mapAdd(char* key, void* val, M* map)
 {
 	char* newkey;
@@ -70,6 +75,22 @@ void* mapGet(char* key, M* map)
 	}
 
 	return NULL;
+}
+
+void* mapGet(int index, M* map)
+{
+	if(index < map->size)
+		return (map->items+index)->val;
+	else
+		return NULL;
+}
+
+void* mapGetKey(int index, M* map)
+{
+	if(index < map->size)
+		return (map->items+index)->key;
+	else
+		return NULL;
 }
 
 void mapClose(M* map)

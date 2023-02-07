@@ -1,6 +1,7 @@
 #include <string>
 #include <nats/nats.h>
 #include <string.h>
+#include <inttypes.h>
 
 #include "ladder.h"
 #include "map.h"
@@ -15,10 +16,16 @@ char nats_payload[262143];
 volatile int64_t    dropped = 0;
 bool                closed = false;
 struct map*         dataToSend;
-char*               variable_names[BUFFER_SIZE];
-int                 num_variables = 0;
+struct map*         variables;
+struct map*         managed_outputs;
 
-IEC_UINT last_int_output[BUFFER_SIZE];
+// char*               variable_names[BUFFER_SIZE];
+int                 num_outputs = 0;
+
+char (*last_output_value)[BUFFER_SIZE];
+
+enum location {Input, Output, Memory, Undefined_Location};
+enum size {Bit, Byte, Word, DWord, Long, Undefined_Size};
 
 #define OPLC_CYCLE              50000000
 
@@ -69,14 +76,22 @@ static int endsWith(const char *str, const char *suffix)
 
 void emptyVariables()
 {
-    for(int i=0; i<BUFFER_SIZE; i++){
-        if(variable_names[i] != 0){
-            free(variable_names[i]);
-        }
-    }
+    mapClose(variables);
+    variables = mapNew();
+    mapClose(managed_outputs);
+    managed_outputs = mapNew();
+    
 }
 
-void remove_value(char *str) {
+void remove_address_tag(char *str) {
+  int len = strlen(str);
+  int value_len = strlen(".address");
+  if (len >= value_len && strcmp(str + len - value_len, ".address") == 0) {
+    str[len - value_len] = '\0';
+  }
+}
+
+void remove_value_tag(char *str) {
   int len = strlen(str);
   int value_len = strlen(".value");
   if (len >= value_len && strcmp(str + len - value_len, ".value") == 0) {
@@ -84,29 +99,314 @@ void remove_value(char *str) {
   }
 }
 
+static void*
+getInternalOutputValue(const char* address)
+{
+    int scan = 0;
+    location* var_loc = (location*)malloc(sizeof(enum location));
+    size* var_size = (size*)malloc(sizeof(enum size));
+    int main_add = 0;
+    int bit_add = 0;
+
+    *var_loc=Undefined_Location;
+    *var_size=Undefined_Size;
+    
+    while (address[scan]!= '%' && address[scan] != '\0') scan++;
+    scan++;
+    switch(address[scan])
+    {
+        case 'I':
+            *var_loc = Input;
+            break;
+        case 'Q':
+            *var_loc = Output;
+            break;
+        case 'M':
+            *var_loc = Memory;
+            break;
+        default:
+            *var_loc = Undefined_Location;
+    }
+
+    scan++;
+    
+    switch(address[scan])
+    {
+        case 'X':
+            *var_size = Bit;
+        break;
+        case 'B':
+            *var_size = Byte;
+        break;
+        case 'W':
+            *var_size = Word;
+        break;
+        case 'D':
+            *var_size = DWord;
+        break;
+        case 'L':
+            *var_size = Long;
+        break;
+        default:
+            *var_size = Undefined_Size;
+    }
+
+    scan++;
+    
+    
+    while(address[scan] != '.' && address[scan] != '\0')
+    {
+        main_add = main_add * 10 + (address[scan] - '0');
+        scan++;
+    }
+    
+    if(*var_size == Bit)
+    {
+        scan++;
+        bit_add = address[scan] - '0';
+    }
+    
+    void* result;
+    switch(*var_size)
+    {
+        case Bit:
+            if(*var_loc == Output)  
+                result = bool_output[main_add][bit_add];
+            else result = NULL;
+        break;
+        case Byte:
+            if(*var_loc == Output) 
+                result = byte_output[main_add];
+            else result = NULL;
+        break;
+        case Word:
+            if(*var_loc == Output) 
+                result = int_output[main_add];
+            else if(*var_loc == Memory) 
+                result = int_memory[main_add];
+            else
+                result = NULL;
+        break;
+        case DWord:
+            if(*var_loc == Memory) 
+                result = dint_memory[main_add];
+            else result = NULL;
+        break;
+        case Long:
+            if(*var_loc == Memory) 
+                result = lint_memory[main_add];
+            else result = NULL;
+        break;
+        default: result = NULL;
+    }
+    
+    free(var_loc);
+    free(var_size);
+
+    return result;
+}
+
 static void
-asyncJsonWalkCb(void *userdata, const char *name, size_t name_len,
-                        const char *path, const struct json_token *t){    
+updateInternalPLCValue(const char* address, const char* value)
+{
+    /*
+    //Booleans
+    extern IEC_BOOL *bool_input[BUFFER_SIZE][8];
+    extern IEC_BOOL *bool_output[BUFFER_SIZE][8];
+
+    //Bytes
+    extern IEC_BYTE *byte_input[BUFFER_SIZE];
+    extern IEC_BYTE *byte_output[BUFFER_SIZE];
+
+    //Analog I/O
+    extern IEC_UINT *int_input[BUFFER_SIZE];
+    extern IEC_UINT *int_output[BUFFER_SIZE];
+
+    //Memory
+    extern IEC_UINT *int_memory[BUFFER_SIZE];
+    extern IEC_DINT *dint_memory[BUFFER_SIZE];
+    extern IEC_LINT *lint_memory[BUFFER_SIZE];    
+    */
+
+    int scan = 0;
+    location* var_loc = (location*)malloc(sizeof(enum location));
+    size* var_size = (size*)malloc(sizeof(enum size));
+    int main_add = 0;
+    int bit_add = 0;
+
+    *var_loc=Undefined_Location;
+    *var_size=Undefined_Size;
+    
+    while (address[scan]!= '%' && address[scan] != '\0') scan++;
+    scan++;
+    switch(address[scan])
+    {
+        case 'I':
+            *var_loc = Input;
+            break;
+        case 'Q':
+            *var_loc = Output;
+            break;
+        case 'M':
+            *var_loc = Memory;
+            break;
+        default:
+            *var_loc = Undefined_Location;
+    }
+
+    scan++;
+    
+    switch(address[scan])
+    {
+        case 'X':
+            *var_size = Bit;
+        break;
+        case 'B':
+            *var_size = Byte;
+        break;
+        case 'W':
+            *var_size = Word;
+        break;
+        case 'D':
+            *var_size = DWord;
+        break;
+        case 'L':
+            *var_size = Long;
+        break;
+        default:
+            *var_size = Undefined_Size;
+    }
+
+    scan++;
+    
+    
+    while(address[scan] != '.' && address[scan] != '\0')
+    {
+        main_add = main_add * 10 + (address[scan] - '0');
+        scan++;
+    }
+    
+    if(*var_size == Bit)
+    {
+        scan++;
+        bit_add = address[scan] - '0';
+    }
+    
+    switch(*var_size)
+    {
+        case Bit:
+            if(*var_loc == Input) 
+                if (bool_input[main_add][bit_add] != NULL) *bool_input[main_add][bit_add] =(IEC_BOOL)(strcmp(value, "0") || strcmp(value, "true"));
+            else if(*var_loc == Output) 
+                if (bool_output[main_add][bit_add] != NULL) *bool_output[main_add][bit_add]=(IEC_BOOL)(strcmp(value, "0") || strcmp(value, "true"));
+            else
+            {
+                sprintf((char*)log_msg, "In-memory boolean values are not supported! (%s)\n", address);
+                log(log_msg);
+            }
+        break;
+        case Byte:
+            if(*var_loc == Input) 
+                if (byte_input[main_add] != NULL) *byte_input[main_add] =(IEC_BYTE)atoi(value);
+            else if(*var_loc == Output) 
+                if (byte_output[main_add] != NULL) *byte_output[main_add]=(IEC_BYTE)atoi(value);
+            else
+            {
+                sprintf((char*)log_msg, "In-memory byte values are not supported! (%s)\n", address);
+                log(log_msg);
+            }
+        break;
+        case Word:
+            if(*var_loc == Input) 
+                if (int_input[main_add] != NULL) *int_input[main_add] =(IEC_INT)atoi(value);
+            else if(*var_loc == Output) 
+                if (int_output[main_add] != NULL) *int_output[main_add]=(IEC_INT)atoi(value);
+            else
+                if (int_memory[main_add] != NULL) *int_memory[main_add]=(IEC_INT)atoi(value);
+        break;
+        case DWord:
+            if(*var_loc == Memory) 
+                if (dint_memory[main_add] != NULL) *dint_memory[main_add] =(IEC_DINT)strtol(value, NULL, 10);
+            else
+            {
+                sprintf((char*)log_msg, "32 bit values are only supported in Memory locations! (%s)\n", address);
+                log(log_msg);
+            }
+        break;
+        case Long:
+            if(*var_loc == Memory) 
+            {
+                if (lint_memory[main_add]!= NULL) *lint_memory[main_add] =(IEC_LINT)strtoll(value, NULL, 10);
+            }
+            else
+            {
+                sprintf((char*)log_msg, "64 bit values are only supported in Memory locations! (%s)\n", address);
+                log(log_msg);
+            }
+        break;
+    }
+    
+    free(var_loc);
+    free(var_size);
+
+}
+
+static void
+messageCallback(void *userdata, const char *name, size_t name_len,
+                        const char *path, const struct json_token *t)
+{
     //starts with ".data."
     if(strncmp(".data.", path, 6 ) == 0)
     {
         if(endsWith(path, ".value") != 0)        
         {
-            //Variable found. Add to PLC memory mapping.
-            char* varName = strdup(path);
-            remove_value(varName);            
-            sprintf((char*)log_msg, "%s = %.*s\n", varName, t->len, t->ptr);
-            log(log_msg);
-            unsigned char strValue[12];
-            sprintf((char*)strValue, "%.*s", t->len, t->ptr);
-            int value = atoi((char*)strValue);
-            //INTERNAL PLC MEMORY
-            int_memory[num_variables] = (IEC_UINT*)value;
-            int_input[num_variables] = (IEC_UINT*)value;
+            //Variable found. Update internal structs.
 
-            //VARIABLES MAP
-            strcpy(variable_names[num_variables], varName);            
-            num_variables++;
+            char* varName = strdup(path+6);
+            
+            remove_value_tag(varName);
+
+            char* strValue = (char*)malloc(t->len * sizeof(char));
+            sprintf((char*)strValue, "%.*s", t->len, t->ptr);
+
+            char* addressing = (char*)mapGet(varName, variables);
+
+            sprintf((char*)log_msg, "%s = %s\n", varName, addressing);
+            log(log_msg);
+
+            updateInternalPLCValue(addressing, strValue);
+            
+            free(varName);
+        }
+    }
+}
+
+static void
+configFileWalkCb(void *userdata, const char *name, size_t name_len,
+                        const char *path, const struct json_token *t)
+{    
+    //starts with ".data."
+    if(strncmp(".data.", path, 6 ) == 0)
+    {
+        if(endsWith(path, ".address") != 0)        
+        {
+            //Variable found. Add to PLC memory mapping.
+            char* varName = strdup(path+6);
+            
+            remove_address_tag(varName);
+
+            
+            char* mapping = (char*)malloc(t->len * sizeof(char));
+            sprintf((char*)mapping, "%.*s", t->len, t->ptr);
+
+            sprintf((char*)log_msg, "%s = %s\n", varName, mapping);
+            log(log_msg);
+            mapDynAdd(varName, mapping, variables);
+            if(mapping[1]=='Q' || mapping[1]=='M')
+            {
+                mapDynAdd(varName, mapping, managed_outputs);            
+                num_outputs++;
+            }
 
             free(varName);
         }
@@ -116,21 +416,25 @@ asyncJsonWalkCb(void *userdata, const char *name, size_t name_len,
 static void
 loadMappingFile()
 {
-    char* jsonFile = json_fread("payload_example.json");
+    char* jsonFile = json_fread("../config/config.json");
 
     int fileLen = strlen(jsonFile);
     sprintf((char*)log_msg, "Lenght is %d\n", fileLen);
     log(log_msg);
 
+    
+    
     sprintf((char*)log_msg, "JSON WALK\n");
     log(log_msg);
     emptyVariables();
-    num_variables = 0;
-    json_walk(jsonFile, strlen(jsonFile), asyncJsonWalkCb, NULL);
+    num_outputs = 0;
+    
+    json_walk(jsonFile, strlen(jsonFile), configFileWalkCb, NULL);
+    last_output_value = (char(*)[BUFFER_SIZE]) malloc(num_outputs * sizeof *last_output_value);
 
-    sprintf((char*)log_msg, "Number of variables stored: %d\n", num_variables);
+    sprintf((char*)log_msg, "Number of outputs stored: %d\n", num_outputs);
     log(log_msg);
-
+    
     free(jsonFile);
 }
 
@@ -148,24 +452,22 @@ onMsg(natsConnection *nc, natsSubscription *sub, natsMsg *msg, void *closure)
     
     log(log_msg);
 
-    loadMappingFile();
-    /*
-    sprintf((char*)log_msg, "Lenght is %d\n", strlen(natsMsg_GetData(msg)));
-    log(log_msg);
-
-    json_walk(natsMsg_GetData(msg), strlen(natsMsg_GetData(msg)), asyncJsonWalkCb, NULL);
-    */
+    // Locking input buffer to avoid conflicts with PLC program
+    pthread_mutex_lock(&bufferLock);
+    json_walk(natsMsg_GetData(msg), strlen(natsMsg_GetData(msg)), messageCallback, NULL);
+    pthread_mutex_unlock(&bufferLock);
+    
     natsMsg_Destroy(msg);
 
 }
 
-static natsOptions* generateOptions(){
+static natsOptions* generateOptions(const char* server){
     natsStatus  s       = NATS_OK;
 
     if (natsOptions_Create(&opts) != NATS_OK)
         s = NATS_NO_MEMORY;
 
-    natsOptions_SetURL(opts, url);
+    natsOptions_SetURL(opts, server);
     natsOptions_SetClosedCB(opts, asyncClosedCb, (void*)&closed);
     natsOptions_SetErrorHandler(opts, asyncErrorCb, NULL);
     natsOptions_SetName(opts, connectionName);
@@ -176,7 +478,7 @@ static natsOptions* generateOptions(){
     natsOptions_SetRetryOnFailedConnect(opts, true, asyncReconnectedCb, NULL);
 }
 
-void natsStartClient(int port){
+void natsStartClient(char* server, char* sub_topic, char* pub_topic){
     sprintf((char*)log_msg, "Starting NATS Client\n");
     log(log_msg);
 
@@ -187,14 +489,20 @@ void natsStartClient(int port){
     natsMsg             *msg   = NULL;
     natsStatus          s;
 
+    variables = mapNew();
+    managed_outputs = mapNew();
+    
+    loadMappingFile();
+
+    opts = generateOptions(server);
     s = natsConnection_Connect(&conn, opts);
 
-    sprintf((char*)log_msg, "Listening asynchronously on '%s'.\n", subSubj);
+    sprintf((char*)log_msg, "Listening asynchronously on '%s'.\n", sub_topic);
     log(log_msg);
 
     if (s == NATS_OK)
     {
-        s = natsConnection_Subscribe(&sub, conn, subSubj, onMsg, NULL);
+        s = natsConnection_Subscribe(&sub, conn, sub_topic, onMsg, NULL);
     }
 
     // For maximum performance, set no limit on the number of pending messages.
@@ -206,7 +514,7 @@ void natsStartClient(int port){
     clock_gettime(CLOCK_MONOTONIC, &timer_start);
     
     dataToSend = mapNew();
-
+    bool firstRun = true;
     while(run_nats) 
     {
         pthread_mutex_lock(&bufferLock);
@@ -214,25 +522,41 @@ void natsStartClient(int port){
         mapClose(dataToSend);
         dataToSend = mapNew();
         int dataToSendLen = 0;
-        for(int i=0; i<BUFFER_SIZE; i++){
-            if(int_output[i]){
-                if(*int_output[i] != (IEC_UINT)last_int_output[i]){
-                    //Output value changed by PLC program. Adding to list.
-                    if(variable_names[i]){
-                        mapAdd(variable_names[i], (int*)int_output[i], dataToSend);
-                    }else{
-                        mapAdd("UNNAMED", (int*)int_output[i], dataToSend);
-                    }
-                    dataToSendLen++;
-                }
+
+        for(int i=0; i<mapSize(managed_outputs); i++){
+            char* output = (char*)mapGet(i, managed_outputs);
+            char* result = (char*)getInternalOutputValue(output);
+            if(result == NULL) continue;
+            
+            if(strcmp(last_output_value[i], result) != 0)
+            {
+                mapAdd((char*)mapGetKey(i, managed_outputs), result, dataToSend);
+                *last_output_value[i] = *result;
+                dataToSendLen++;                
             }
-        }              
-        pthread_mutex_unlock(&bufferLock);
-        if(dataToSendLen > 0){
-            //Generate and publish command
-            natsConnection_Publish(conn, pubSubj, "TEST COMMAND", 12);
+            
+
         }
-        sleep_until(&timer_start, OPLC_CYCLE);
+        pthread_mutex_unlock(&bufferLock);
+        
+        if(dataToSendLen > 0){
+            if(firstRun)
+                firstRun = false;
+            else
+            {
+                strcpy(nats_payload, "{\"specversion\": \"1.0\",\"id\": \"fac68cf9-dead-beef-8d2a-4adb55868046\",\"type\": \"deviceservice.samples\",\"source\": \"openplc://devices/simulator\",\"datacontenttype\": \"application/json\",\"subject\": \"breaker\",\"data\": {");
+                for(int i=0; i<mapSize(dataToSend); i++){                    
+                    sprintf((char*)log_msg, "\"%s\":{\"value\":%s},");
+                    strcat(nats_payload, (char*)log_msg);
+                };
+                nats_payload[strlen(nats_payload)-1]='\0';
+                strcat(nats_payload, "}}");
+                //Generate and publish command
+                natsConnection_Publish(conn, pub_topic, nats_payload, strlen(nats_payload));
+            }
+        }
+        
+        sleep_until(&timer_start, OPLC_CYCLE * 10);
     }
 
     sprintf((char*)log_msg, "Shutting down NATS client\n");

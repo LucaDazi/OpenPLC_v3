@@ -1174,7 +1174,11 @@ settings_tail = """
             var dnp3_checkbox = document.getElementById('dnp3_server');
             var dnp3_text = document.getElementById('dnp3_server_port');
             var nats_checkbox = document.getElementById('nats_client');
-            var nats_text = document.getElementById('nats_client_port');
+            /* LUCA  */
+            var nats_server = document.getElementById('nats_server');
+            var nats_sub_topic = document.getElementById('nats_sub_topic');
+            var nats_pub_topic = document.getElementById('nats_pub_topic');
+            /* */
             var enip_checkbox = document.getElementById('enip_server');
             var enip_text = document.getElementById('enip_server_port');
             var pstorage_checkbox = document.getElementById('pstorage_thread');
@@ -1200,14 +1204,20 @@ settings_tail = """
                 dnp3_text.disabled = true;
             }
             
+            /* LUCA */
             if (nats_checkbox.checked == true)
             {
-                nats_text.disabled = false;
+                nats_server.disabled = false;
+                nats_sub_topic.disabled = false;
+                nats_pub_topic.disabled = false;
             }
             else
             {
-                nats_text.disabled = true;
+                nats_server.disabled = true;
+                nats_sub_topic.disabled = true;
+                nats_pub_topic.disabled = true;
             }
+            /* */
 
             if (enip_checkbox.checked == true)
             {
@@ -1274,7 +1284,11 @@ settings_tail = """
             var dnp3_checkbox = document.forms["uploadForm"]["dnp3_server"].checked;
             var dnp3_port = document.forms["uploadForm"]["dnp3_server_port"].value;
             var nats_checkbox = document.forms["uploadForm"]["nats_client"].checked;
-            var nats_port = document.forms["uploadForm"]["nats_client_port"].value;
+            /* LUCA */
+            var nats_server = document.forms["uploadForm"]["nats_server"].value;
+            var nats_sub_topic = document.forms["uploadForm"]["nats_sub_topic"].value;
+            var nats_pub_topic = document.forms["uploadForm"]["nats_pub_topic"].value;
+            /* */
             var enip_checkbox = document.forms["uploadForm"]["enip_server"].checked;
             var enip_port = document.forms["uploadForm"]["enip_server_port"].value;
             var pstorage_checkbox = document.forms["uploadForm"]["pstorage_thread"].checked;
@@ -1290,11 +1304,23 @@ settings_tail = """
                 alert("Please select a port number between 0 and 65535");
                 return false;
             }
-            if (nats_checkbox && (Number(nats_port) < 0 || Number(nats_port) > 65535))
+            /* LUCA */
+            if (nats_checkbox && (nats_server.trim().lenght == 0))
             {
-                alert("Please select a port number between 0 and 65535");
+                alert("Please add a server address for the internal NATS client, in the form 'nats://address:port'");
                 return false;
             }
+            if (nats_checkbox && (nats_sub_topic.trim().lenght == 0))
+            {
+                alert("Please add a subscription topic for the internal NATS client");
+                return false;
+            }
+            if (nats_checkbox && (nats_pub_topic.trim().lenght == 0))
+            {
+                alert("Please add a publish topic for the internal NATS client");
+                return false;
+            }
+            /* */
             if (enip_checkbox && (Number(enip_port) < 0 || Number(enip_port) > 65535))
             {
                 alert("Please select a port number between 0 and 65535");

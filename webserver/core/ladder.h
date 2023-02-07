@@ -158,7 +158,7 @@ void updateBuffersOut_MB();
 void dnp3StartServer(int port);
 
 //nats.cpp
-void natsStartClient(int port);
+void natsStartClient(char* server, char* sub_topic, char* pub_topic);
 
 //persistent_storage.cpp
 void startPstorage();

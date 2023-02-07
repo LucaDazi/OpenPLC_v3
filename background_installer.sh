@@ -41,14 +41,15 @@ function linux_install_deps {
     if [ "$INSTALLER" = "yum" ]; then
         yum clean expire-cache
         yum check-update
-        $1 yum -q -y install curl make automake gcc gcc-c++ kernel-devel pkg-config bison flex autoconf libtool openssl-devel cmake python3 python3-pip
+        $1 yum -q -y install curl make automake gcc gcc-c++ kernel-devel pkg-config bison flex autoconf libtool openssl-devel cmake python3 python3-pip openssl
         $1 yum -q -y install python2.7 python2-devel
     #Installing dependencies for Ubuntu/Mint/Debian
     else
         $1 apt-get update
         $1 apt-get install -y build-essential pkg-config bison flex autoconf \
                               automake libtool make git python2.7 \
-                              sqlite3 cmake git curl python3 python3-pip
+                              sqlite3 cmake git curl python3 python3-pip \
+                              openssl libssl-dev libprotobuf-c1 libprotobuf-c-dev
     fi
     curl https://bootstrap.pypa.io/pip/2.7/get-pip.py --output get-pip.py
     $1 python2.7 get-pip.py
