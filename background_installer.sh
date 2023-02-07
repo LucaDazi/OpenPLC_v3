@@ -162,6 +162,7 @@ function install_all_libs {
         echo "OpenPLC was NOT installed"
         exit 1
     fi
+    $1 ldconfig
     cd ../../..
 
     if [ "$1" == "sudo" ]; then
