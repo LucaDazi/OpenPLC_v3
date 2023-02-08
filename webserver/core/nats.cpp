@@ -27,7 +27,7 @@ char (*last_output_value)[BUFFER_SIZE];
 enum location {Input, Output, Memory, Undefined_Location};
 enum size {Bit, Byte, Word, DWord, Long, Undefined_Size};
 
-#define OPLC_CYCLE              50000000
+#define OPLC_CYCLE              25000000
 
 static void
 asyncErrorCb(natsConnection *nc, natsSubscription *sub, natsStatus err, void *closure)
@@ -556,7 +556,7 @@ void natsStartClient(char* server, char* sub_topic, char* pub_topic){
             }
         }
         
-        sleep_until(&timer_start, OPLC_CYCLE * 10);
+        sleep_until(&timer_start, OPLC_CYCLE);
     }
 
     sprintf((char*)log_msg, "Shutting down NATS client\n");
