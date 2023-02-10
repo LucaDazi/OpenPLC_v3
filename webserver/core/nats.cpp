@@ -6,11 +6,12 @@
 #include "ladder.h"
 #include "map.h"
 
-const char          *subSubj   = "devices.ethercat.tatv.events";
-const char          *pubSubj   = "devices.ethercat.tatv.commands";
-const char          *url = "nats://localhost:4222";
+char                *url = NULL;
 const char          *connectionName = "OpenPLC_client";
 natsOptions         *opts   = NULL;
+natsConnection      *conn = NULL;
+natsSubscription    *sub   = NULL;
+
 unsigned char log_msg[2047];
 char nats_payload[262143];
 volatile int64_t    dropped = 0;
@@ -41,14 +42,18 @@ asyncErrorCb(natsConnection *nc, natsSubscription *sub, natsStatus err, void *cl
 static void
 asyncClosedCb(natsConnection *nc, void *closure)
 {
-    bool        *closed = (bool*)closure;
     const char  *err    = NULL;
 
     natsConnection_GetLastError(nc, &err);
     sprintf((char*)log_msg, "Connect failed: %s\n", err);
     log(log_msg);
 
-    *closed = true;
+    if(run_nats){
+        sprintf((char*)log_msg, "New connection attempt... \n");
+        log(log_msg);
+        natsConnection_Connect(&conn, opts);
+    }
+
 }
 
 static void
@@ -58,8 +63,14 @@ asyncDisconnectedCb(natsConnection *nc, void *closure){
 }
 
 static void
-asyncReconnectedCb(natsConnection *nc, void *closure){
+asyncConnectedCb(natsConnection *nc, void *closure){
     sprintf((char*)log_msg, "%s connected to %s\n", connectionName, url);    
+    log(log_msg);
+}
+
+static void
+asyncReconnectedCb(natsConnection *nc, void *closure){
+    sprintf((char*)log_msg, "%s reconnected to %s\n", connectionName, url);    
     log(log_msg);
 }
 
@@ -399,8 +410,8 @@ configFileWalkCb(void *userdata, const char *name, size_t name_len,
             char* mapping = (char*)malloc(t->len * sizeof(char));
             sprintf((char*)mapping, "%.*s", t->len, t->ptr);
 
-            sprintf((char*)log_msg, "%s = %s\n", varName, mapping);
-            log(log_msg);
+            //sprintf((char*)log_msg, "%s = %s\n", varName, mapping);
+            //log(log_msg);
             mapDynAdd(varName, mapping, variables);
             if(mapping[1]=='Q' || mapping[1]=='M')
             {
@@ -461,30 +472,28 @@ onMsg(natsConnection *nc, natsSubscription *sub, natsMsg *msg, void *closure)
 
 }
 
-static natsOptions* generateOptions(const char* server){
+static natsOptions* generateOptions(){
     natsStatus  s       = NATS_OK;
 
     if (natsOptions_Create(&opts) != NATS_OK)
         s = NATS_NO_MEMORY;
 
-    natsOptions_SetURL(opts, server);
+    natsOptions_SetURL(opts, url);
     natsOptions_SetClosedCB(opts, asyncClosedCb, (void*)&closed);
     natsOptions_SetErrorHandler(opts, asyncErrorCb, NULL);
     natsOptions_SetName(opts, connectionName);
     natsOptions_SetDisconnectedCB(opts, asyncDisconnectedCb, NULL);
     natsOptions_SetReconnectedCB(opts, asyncReconnectedCb, NULL);
-    natsOptions_SetReconnectJitter(opts, 250, 5000);
-    natsOptions_SetReconnectWait(opts, 500);
-    natsOptions_SetRetryOnFailedConnect(opts, true, asyncReconnectedCb, NULL);
+    //natsOptions_SetReconnectJitter(opts, 250, 5000);
+    natsOptions_SetReconnectWait(opts, 100);
+    natsOptions_SetRetryOnFailedConnect(opts, true, asyncConnectedCb, NULL);
+    natsOptions_SetMaxReconnect(opts, 50);
 }
 
 void natsStartClient(char* server, char* sub_topic, char* pub_topic){
     sprintf((char*)log_msg, "Starting NATS Client\n");
     log(log_msg);
 
-    natsConnection      *conn = NULL;
-    natsOptions         *opts  = NULL;
-    natsSubscription    *sub   = NULL;
     natsStatistics      *stats = NULL;
     natsMsg             *msg   = NULL;
     natsStatus          s;
@@ -494,7 +503,9 @@ void natsStartClient(char* server, char* sub_topic, char* pub_topic){
     
     loadMappingFile();
 
-    opts = generateOptions(server);
+    url = (char*) malloc(strlen(server) * sizeof(char));
+    strcpy((char*)url, server);
+    generateOptions();
     s = natsConnection_Connect(&conn, opts);
 
     sprintf((char*)log_msg, "Listening asynchronously on '%s'.\n", sub_topic);
