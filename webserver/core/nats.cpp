@@ -19,11 +19,12 @@ bool                closed = false;
 struct map*         dataToSend;
 struct map*         variables;
 struct map*         managed_outputs;
+struct map*         last_output_values;
 
 // char*               variable_names[BUFFER_SIZE];
 int                 num_outputs = 0;
 
-char (*last_output_value)[BUFFER_SIZE];
+
 
 enum location {Input, Output, Memory, Undefined_Location};
 enum size {Bit, Byte, Word, DWord, Long, Undefined_Size};
@@ -91,6 +92,8 @@ void emptyVariables()
     variables = mapNew();
     mapClose(managed_outputs);
     managed_outputs = mapNew();
+    mapClose(last_output_values);
+    last_output_values = mapNew();
     
 }
 
@@ -110,7 +113,7 @@ void remove_value_tag(char *str) {
   }
 }
 
-static void*
+static char*
 getInternalOutputValue(const char* address)
 {
     int scan = 0;
@@ -177,35 +180,38 @@ getInternalOutputValue(const char* address)
         bit_add = address[scan] - '0';
     }
     
-    void* result;
+    
+    char* result;
+    result = (char*)malloc(20 * sizeof(char));
     switch(*var_size)
     {
         case Bit:
             if(*var_loc == Output)  
-                result = bool_output[main_add][bit_add];
+                sprintf(result, "%s", *bool_output[main_add][bit_add] ? "0" : "1");
             else result = NULL;
         break;
         case Byte:
             if(*var_loc == Output) 
-                result = byte_output[main_add];
+                sprintf(result, "%x", *byte_output[main_add]);
             else result = NULL;
         break;
         case Word:
-            if(*var_loc == Output) 
-                result = int_output[main_add];
+            if(*var_loc == Output){ 
+               sprintf(result, "%d", *int_output[main_add]);
+            }
             else if(*var_loc == Memory) 
-                result = int_memory[main_add];
+                sprintf(result, "%d", *int_memory[main_add]);
             else
                 result = NULL;
         break;
         case DWord:
             if(*var_loc == Memory) 
-                result = dint_memory[main_add];
+                sprintf(result, "%d", *dint_memory[main_add]);
             else result = NULL;
         break;
         case Long:
             if(*var_loc == Memory) 
-                result = lint_memory[main_add];
+                sprintf(result, "%d", *lint_memory[main_add]);
             else result = NULL;
         break;
         default: result = NULL;
@@ -215,6 +221,7 @@ getInternalOutputValue(const char* address)
     free(var_size);
 
     return result;
+    
 }
 
 static void
@@ -382,10 +389,16 @@ messageCallback(void *userdata, const char *name, size_t name_len,
 
             char* addressing = (char*)mapGet(varName, variables);
 
-            sprintf((char*)log_msg, "%s = %s\n", varName, addressing);
-            log(log_msg);
-
-            updateInternalPLCValue(addressing, strValue);
+            //sprintf((char*)log_msg, "%s = %s\n", varName, addressing);
+            //log(log_msg);
+            if(addressing == NULL){
+                sprintf((char*)log_msg, "%s not found in memory map! Skipped.\n", varName);
+                log(log_msg);
+            }else{
+                sprintf((char*)log_msg, "Updating %s to %s.\n", addressing, strValue);
+                log(log_msg);
+                updateInternalPLCValue(addressing, strValue);
+            }
             
             free(varName);
         }
@@ -415,7 +428,12 @@ configFileWalkCb(void *userdata, const char *name, size_t name_len,
             mapDynAdd(varName, mapping, variables);
             if(mapping[1]=='Q' || mapping[1]=='M')
             {
-                mapDynAdd(varName, mapping, managed_outputs);            
+                mapDynAdd(varName, mapping, managed_outputs); 
+
+                char* result = getInternalOutputValue(mapping);
+                sprintf((char*)log_msg, "Current value of %s:%s\n", mapping, result);
+                log(log_msg);                                    
+                mapDynAdd(varName, result, last_output_values);
                 num_outputs++;
             }
 
@@ -441,7 +459,6 @@ loadMappingFile()
     num_outputs = 0;
     
     json_walk(jsonFile, strlen(jsonFile), configFileWalkCb, NULL);
-    last_output_value = (char(*)[BUFFER_SIZE]) malloc(num_outputs * sizeof *last_output_value);
 
     sprintf((char*)log_msg, "Number of outputs stored: %d\n", num_outputs);
     log(log_msg);
@@ -497,9 +514,10 @@ void natsStartClient(char* server, char* sub_topic, char* pub_topic){
     natsStatistics      *stats = NULL;
     natsMsg             *msg   = NULL;
     natsStatus          s;
-
+   
     variables = mapNew();
     managed_outputs = mapNew();
+    last_output_values = mapNew();    
     
     loadMappingFile();
 
@@ -534,20 +552,34 @@ void natsStartClient(char* server, char* sub_topic, char* pub_topic){
         dataToSend = mapNew();
         int dataToSendLen = 0;
 
+        //sprintf((char*)log_msg, "Checking memory...\n");
+        //log(log_msg);
+        
+             
         for(int i=0; i<mapSize(managed_outputs); i++){
             char* output = (char*)mapGet(i, managed_outputs);
             char* result = (char*)getInternalOutputValue(output);
-            if(result == NULL) continue;
+            char* lastOutputValue = (char*)mapGet(i,last_output_values);
+
+            //sprintf((char*)log_msg, "%s=%s(%s)\n",output, result, lastOutputValue);
+            //log(log_msg);
+
             
-            if(strcmp(last_output_value[i], result) != 0)
-            {
-                mapAdd((char*)mapGetKey(i, managed_outputs), result, dataToSend);
-                *last_output_value[i] = *result;
-                dataToSendLen++;                
+            if(result != NULL){
+                if((strcmp(lastOutputValue, result) != 0))
+                {
+                    mapAdd((char*)mapGetKey(i, managed_outputs), result, dataToSend);
+                    strcpy(lastOutputValue, result);
+                    dataToSendLen++;                
+                }
             }
             
+            
+
+            //free(result);                        
 
         }
+        
         pthread_mutex_unlock(&bufferLock);
         
         if(dataToSendLen > 0){
@@ -555,9 +587,11 @@ void natsStartClient(char* server, char* sub_topic, char* pub_topic){
                 firstRun = false;
             else
             {
+                sprintf((char*)log_msg, "Changes detected! Generating NATS event on configured topic\n");
+                log(log_msg);
                 strcpy(nats_payload, "{\"specversion\": \"1.0\",\"id\": \"fac68cf9-dead-beef-8d2a-4adb55868046\",\"type\": \"deviceservice.samples\",\"source\": \"openplc://devices/simulator\",\"datacontenttype\": \"application/json\",\"subject\": \"breaker\",\"data\": {");
                 for(int i=0; i<mapSize(dataToSend); i++){                    
-                    sprintf((char*)log_msg, "\"%s\":{\"value\":%s},");
+                    sprintf((char*)log_msg, "\"%s\":{\"value\":%s},", mapGetKey(i, dataToSend), mapGet(i, dataToSend));
                     strcat(nats_payload, (char*)log_msg);
                 };
                 nats_payload[strlen(nats_payload)-1]='\0';
